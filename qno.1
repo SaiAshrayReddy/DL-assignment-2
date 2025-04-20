@@ -1,0 +1,60 @@
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Input, Embedding, LSTM, GRU, SimpleRNN, Dense
+
+EMBED_DIM = 64
+HIDDEN_UNITS = 128
+CELL_CHOICE = 'LSTM'
+ENCODER_LAYERS = 1
+DECODER_LAYERS = 1
+VOCAB_SIZE = 100
+SEQ_MAX_LEN = 20
+
+def choose_rnn(cell_name):
+    if cell_name == 'RNN':
+        return SimpleRNN
+    elif cell_name == 'LSTM':
+        return LSTM
+    elif cell_name == 'GRU':
+        return GRU
+    else:
+        raise ValueError("Hmm, unsupported cell type. Pick from 'RNN', 'LSTM', or 'GRU'.")
+
+encoder_input = Input(shape=(None,), name='encoder_input_tokens')
+embedding_encoder = Embedding(input_dim=VOCAB_SIZE, output_dim=EMBED_DIM)(encoder_input)
+
+rnn_class = choose_rnn(CELL_CHOICE)
+encoder_rnn_output = embedding_encoder
+encoder_final_states = []
+
+for layer_idx in range(ENCODER_LAYERS):
+    state_output_needed = True
+    if CELL_CHOICE == 'LSTM':
+        rnn = rnn_class(HIDDEN_UNITS, return_sequences=False, return_state=state_output_needed)
+        encoder_rnn_output, hidden_state, cell_state = rnn(encoder_rnn_output)
+        encoder_final_states = [hidden_state, cell_state]
+    else:
+        rnn = rnn_class(HIDDEN_UNITS, return_sequences=False, return_state=state_output_needed)
+        encoder_rnn_output, hidden_state = rnn(encoder_rnn_output)
+        encoder_final_states = [hidden_state]
+
+decoder_input = Input(shape=(None,), name='decoder_input_tokens')
+embedding_decoder = Embedding(input_dim=VOCAB_SIZE, output_dim=EMBED_DIM)(decoder_input)
+
+decoder_rnn_output = embedding_decoder
+
+for layer_idx in range(DECODER_LAYERS):
+    if CELL_CHOICE == 'LSTM':
+        decoder_rnn = rnn_class(HIDDEN_UNITS, return_sequences=True, return_state=True)
+        decoder_rnn_output, _, _ = decoder_rnn(decoder_rnn_output, initial_state=encoder_final_states)
+    else:
+        decoder_rnn = rnn_class(HIDDEN_UNITS, return_sequences=True, return_state=True)
+        decoder_rnn_output, _ = decoder_rnn(decoder_rnn_output, initial_state=encoder_final_states)
+
+output_dense = Dense(VOCAB_SIZE, activation='softmax')
+decoder_final_output = output_dense(decoder_rnn_output)
+
+seq2seq_model = Model([encoder_input, decoder_input], decoder_final_output)
+seq2seq_model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+seq2seq_model.summary()
